@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src/generated/prisma/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.*.local
+.env.local
+
+# IDE files & OS generated
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# WhatsApp session data (jika menggunakan path custom)
+session/
+wwebjs_auth/
+.wwebjs_cache/
+
+# Prisma SQLite database file
+prisma/dev.db
+prisma/*.db
+prisma/*.db-journal # SQLite journal files

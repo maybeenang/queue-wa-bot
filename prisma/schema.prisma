@@ -1,0 +1,28 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model QueueItem {
+  id        String   @id @default(cuid())
+  userId    String   @unique // Nomor WA user (@c.us)
+  chatId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+model AdminState {
+  id              Int      @id @default(autoincrement())
+  isServiceOnline Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+}
