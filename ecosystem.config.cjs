@@ -1,11 +1,10 @@
 module.exports = {
     apps: [
         {
-            name: "bot-wa-km",
-            script: "npm",
-            args: "start",
+            name: "bot-wa-antrian",
+            script: "./dist/index.js",
             autorestart: true,
-            max_memory_restart: "500M",
+            max_memory_restart: "600M",
         },
     ],
 };
