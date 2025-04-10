@@ -33,6 +33,7 @@ Thumbs.db
 session/
 wwebjs_auth/
 .wwebjs_cache/
+.wwebjs_auth/
 
 # Prisma SQLite database file
 prisma/dev.db

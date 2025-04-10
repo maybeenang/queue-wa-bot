@@ -6,7 +6,9 @@ class QueueService {
 
     constructor() {
         logger.info("QueueService initialized.");
-        this.logInitialQueueSize();
+        this.logInitialQueueSize().catch((e) => {
+            logger.error({ err: e }, "Error logging initial queue size.");
+        });
     }
 
     private async logInitialQueueSize(): Promise<void> {
@@ -71,7 +73,13 @@ class QueueService {
 
             logger.info({ userId: senderId, position }, "User position in queue retrieved.");
             return position;
-        } catch (error) {
+        } catch (error: any) {
+
+            if (error.code === "P2002") {
+                logger.warn({ userId: senderId }, "User already in queue.");
+                return this.getUserPosition(senderId);
+            }
+
             logger.error({ err: error }, "Failed to add to queue.");
             return null;
         }
@@ -113,6 +121,72 @@ class QueueService {
             return null;
         }
     }
+
+    async assignNextUser(adminName: string): Promise<PrismaQueueItem | null> {
+        const normalizedAdminName = adminName.toLowerCase().trim();
+        if (!normalizedAdminName) {
+            logger.error("AssignNextUser called with empty admin name.");
+            return null;
+        }
+
+        try {
+            const assignedItem = await prisma.$transaction(async (tx) => {
+                const oldestUnassigned = await tx.queueItem.findFirst({
+                    where: { assignedAdminName: null },
+                    orderBy: { createdAt: 'asc' },
+                });
+
+                if (!oldestUnassigned) return null;
+
+                const updatedItem = await tx.queueItem.update({
+                    where: { id: oldestUnassigned.id },
+                    data: {
+                        assignedAdminName: normalizedAdminName,
+                        updatedAt: new Date(),
+                    },
+                });
+                return updatedItem;
+            });
+
+            if (assignedItem) {
+                logger.info({ userId: assignedItem.userId, assignedTo: assignedItem.assignedAdminName }, 'Assigned next user and set assignment timestamp.');
+            } else {
+                logger.info('No unassigned users found in the queue.');
+            }
+            return assignedItem; // Kembalikan item yang diassign (atau null)
+        } catch (error) {
+            logger.error({ err: error, adminName: normalizedAdminName }, 'Failed assignNextUser transaction');
+            return null; // Kembalikan null jika transaksi gagal
+        }
+    }
+
+    async clearAssignmentTimestamp(userId: string): Promise<boolean> {
+        if (!userId) return false;
+        try {
+            const result = await prisma.queueItem.updateMany({
+                where: {
+                    userId: userId,
+                },
+                data: {
+                    timeoutStartedAt: null, // Set kembali ke null
+                    timeoutWarningSent: false,
+                    updatedAt: new Date(),
+                },
+            });
+            // Jika ada baris yang terpengaruh (count > 0), berarti berhasil
+            if (result.count > 0) {
+                logger.info({ userId }, "Cleared assignment timestamp for user (responded in time).");
+                return true;
+            } else {
+                logger.warn({ userId }, "Could not clear assignment timestamp (user/timestamp not found or already null).");
+                return false;
+            }
+        } catch (error) {
+            logger.error({ err: error, userId }, "Failed to clear assignment timestamp.");
+            return false;
+        }
+    }
+
 
     async isQueueEmpty(): Promise<boolean> {
         try {
@@ -172,6 +246,94 @@ class QueueService {
             return !!queueItem;
         } catch (error) {
             logger.error({ err: error }, "Failed to check if user is in queue.");
+            return false;
+        }
+    }
+
+    async isUserQueued(senderId: string): Promise<boolean> {
+        try {
+            const queueItem = await prisma.queueItem.findFirst({
+                where: {
+                    userId: senderId,
+                    assignedAdminName: null, // Belum diassign
+                },
+            });
+
+            return !!queueItem;
+        } catch (error) {
+            logger.error({ err: error }, "Failed to check if user is queued.");
+            return false;
+        }
+    }
+
+    async setOrResetTimeoutStart(userId: string): Promise<boolean> {
+        if (!userId) return false;
+        const now = new Date();
+        try {
+            // Update timestamp dan reset flag warning
+            const result = await prisma.queueItem.updateMany({
+                where: {
+                    userId: userId,
+                    assignedAdminName: { not: null }, // Pastikan user masih diassign
+                },
+                data: {
+                    timeoutStartedAt: now, // Set/Reset timestamp mulai timeout
+                    timeoutWarningSent: false, // Reset flag peringatan
+                    updatedAt: now,
+                },
+            });
+            if (result.count > 0) {
+                logger.info({ userId, startedAt: now }, "Timeout timer started/reset for assigned user.");
+                return true;
+            } else {
+                logger.warn({ userId }, "Could not start/reset timeout timer (user not found or not assigned).");
+                return false;
+            }
+        } catch (error) {
+            logger.error({ err: error, userId }, "Failed to set/reset timeout start.");
+            return false;
+        }
+    }
+
+    async clearTimeoutStart(userId: string): Promise<boolean> {
+        if (!userId) return false;
+        try {
+            // Set timeoutStartedAt kembali ke null dan reset warning flag
+            const result = await prisma.queueItem.updateMany({
+                where: {
+                    userId: userId,
+                    timeoutStartedAt: { not: null }, // Hanya jika timer sedang berjalan
+                },
+                data: {
+                    timeoutStartedAt: null,
+                    timeoutWarningSent: false, // Reset juga flag warning
+                    updatedAt: new Date(),
+                },
+            });
+            if (result.count > 0) {
+                logger.info({ userId }, "Timeout timer stopped (user responded).");
+                return true;
+            } else {
+                logger.warn({ userId }, "Could not stop timeout timer (user not found or timer not running).");
+                return false;
+            }
+        } catch (error) {
+            logger.error({ err: error, userId }, "Failed to clear timeout start.");
+            return false;
+        }
+    }
+
+    async markTimeoutWarningSent(queueItemId: string): Promise<boolean> {
+        if (!queueItemId) return false;
+        try {
+            await prisma.queueItem.update({
+                where: { userId: queueItemId },
+                data: { timeoutWarningSent: true, updatedAt: new Date() },
+            });
+            logger.info({ queueItemId }, "Marked timeout warning as sent.");
+            return true;
+        } catch (error) {
+            logger.error({ err: error, queueItemId }, "Failed to mark timeout warning sent.");
             return false;
         }
     }
